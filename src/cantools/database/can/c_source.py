@@ -56,13 +56,10 @@ HEADER_FMT = '''\
 #ifndef {include_guard}
 #define {include_guard}
 
-#ifdef __cplusplus
-extern "C" {{
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "canBroker.h"
 
 #ifndef EINVAL
 #    define EINVAL 22
@@ -91,10 +88,6 @@ extern "C" {{
 
 {structs}
 {declarations}
-
-#ifdef __cplusplus
-}}
-#endif
 
 #endif
 '''
@@ -370,7 +363,8 @@ DECLARATION_PACK_FMT = '''\
  * @return Size of packed data, or negative error code.
  */
 int {database_name}_{message_name}_pack(
-    uint8_t *dst_p,
+    canFdBroker_msg_t *msg_p,
+	class comm::canBroker *obj,
     const struct {database_name}_{message_name}_t *src_p,
     size_t size);
 
@@ -492,7 +486,8 @@ static inline {var_type} unpack_right_shift_u{length}(
 
 DEFINITION_PACK_FMT = '''\
 int {database_name}_{message_name}_pack(
-    uint8_t *dst_p,
+    canFdBroker_msg_t *msg_p,
+	class comm::canBroker *obj,
     const struct {database_name}_{message_name}_t *src_p,
     size_t size)
 {{
@@ -502,8 +497,9 @@ int {database_name}_{message_name}_pack(
         return (-EINVAL);
     }}
 
-    memset(&dst_p[0], 0, {message_length});
+    memset(&msg_p[0], 0, {message_length});
 {pack_body}
+{canObj}
     return ({message_length});
 }}
 
@@ -1578,6 +1574,8 @@ def _generate_definitions(database_name: str,
             if not unpack_body:
                 unpack_unused += '    (void)dst_p;\n'
                 unpack_unused += '    (void)src_p;\n\n'
+            
+            canObj = '    // THIS IS THE CAN OBJ!!\n'
 
             definition = ""
             if is_sender:
@@ -1587,7 +1585,8 @@ def _generate_definitions(database_name: str,
                                                          message_length=cg_message.message.length,
                                                          pack_unused=pack_unused,
                                                          pack_variables=pack_variables,
-                                                         pack_body=pack_body)
+                                                         pack_body=pack_body,
+                                                         canObj = canObj)
             if is_receiver:
                 definition += DEFINITION_UNPACK_FMT.format(database_name=database_name,
                                                            database_message_name=cg_message.message.name,
