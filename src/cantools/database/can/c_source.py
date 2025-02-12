@@ -56,9 +56,18 @@ HEADER_FMT = '''\
 #ifndef {include_guard}
 #define {include_guard}
 
+#ifdef __cplusplus
+extern "C" {{
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+
+#ifdef __cplusplus
+}}
+#endif
+
 #include "canBroker.h"
 
 #ifndef EINVAL
@@ -363,10 +372,9 @@ DECLARATION_PACK_FMT = '''\
  * @return Size of packed data, or negative error code.
  */
 int {database_name}_{message_name}_pack(
-    canFdBroker_msg_t *msg_p,
-	class comm::canBroker *obj,
-    const struct {database_name}_{message_name}_t *src_p,
-    size_t size);
+    comm::canFdBroker_msg_t *msg_p,
+	class comm::canBroker *canb_p,
+    const struct {database_name}_{message_name}_t *src_p);
 
 '''
 
@@ -486,18 +494,17 @@ static inline {var_type} unpack_right_shift_u{length}(
 
 DEFINITION_PACK_FMT = '''\
 int {database_name}_{message_name}_pack(
-    canFdBroker_msg_t *msg_p,
-	class comm::canBroker *obj,
-    const struct {database_name}_{message_name}_t *src_p,
-    size_t size)
+    comm::canFdBroker_msg_t *msg_p,
+	class comm::canBroker *canb_p,
+    const struct {database_name}_{message_name}_t *src_p)
 {{
 {pack_unused}\
 {pack_variables}\
-    if (size < {message_length}u) {{
+    if (msg_p->dlc < {message_length}u) {{
         return (-EINVAL);
     }}
 
-    memset(&msg_p[0], 0, {message_length});
+    memset(&msg_p->data[0], 0, {message_length});
 {pack_body}
 {canObj}
     return ({message_length});
@@ -960,9 +967,9 @@ def _format_pack_code_signal(cg_message: "CodeGenMessage",
 
     for index, shift, shift_direction, mask in cg_signal.segments(invert_shift=False):
         if cg_signal.signal.conversion.is_float or cg_signal.signal.is_signed:
-            fmt = '    dst_p[{}] |= pack_{}_shift_u{}({}, {}u, 0x{:02x}u);'
+            fmt = '    msg_p->data[{}] |= pack_{}_shift_u{}({}, {}u, 0x{:02x}u);'
         else:
-            fmt = '    dst_p[{}] |= pack_{}_shift_u{}(src_p->{}, {}u, 0x{:02x}u);'
+            fmt = '    msg_p->data[{}] |= pack_{}_shift_u{}(src_p->{}, {}u, 0x{:02x}u);'
 
         line = fmt.format(index,
                           shift_direction,
@@ -1575,7 +1582,7 @@ def _generate_definitions(database_name: str,
                 unpack_unused += '    (void)dst_p;\n'
                 unpack_unused += '    (void)src_p;\n\n'
             
-            canObj = '    // THIS IS THE CAN OBJ!!\n'
+            canObj = '    canb_p->sendCanMsg(msg_p);\n'
 
             definition = ""
             if is_sender:
