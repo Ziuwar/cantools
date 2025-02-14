@@ -365,15 +365,13 @@ DECLARATION_PACK_FMT = '''\
 /**
  * Pack message {database_message_name}.
  *
- * @param[out] dst_p Buffer to pack the message into.
  * @param[in] src_p Data to pack.
- * @param[in] size Size of dst_p.
+ * @param[in] canb_p Pointer to canBroker object.
  *
  * @return Size of packed data, or negative error code.
  */
-int {database_name}_{message_name}_pack(
-    comm::canFdBroker_msg_t *msg_p,
-	class comm::canBroker *canb_p,
+int {database_name}_{message_name}_sendMsg(
+	comm::canBroker *canb_p,
     const struct {database_name}_{message_name}_t *src_p);
 
 '''
@@ -383,15 +381,13 @@ DECLARATION_UNPACK_FMT = '''\
  * Unpack message {database_message_name}.
  *
  * @param[out] dst_p Object to unpack the message into.
- * @param[in] src_p Message to unpack.
- * @param[in] size Size of src_p.
+ * @param[in] msg_p Pointer to the message to unpack.
  *
  * @return zero(0) or negative error code.
  */
 int {database_name}_{message_name}_unpack(
     struct {database_name}_{message_name}_t *dst_p,
-    const uint8_t *src_p,
-    size_t size);
+    comm::canBroker_fdMsg_t *msg_p);
 
 '''
 
@@ -493,18 +489,16 @@ static inline {var_type} unpack_right_shift_u{length}(
 '''
 
 DEFINITION_PACK_FMT = '''\
-int {database_name}_{message_name}_pack(
-    comm::canFdBroker_msg_t *msg_p,
-	class comm::canBroker *canb_p,
+int {database_name}_{message_name}_sendMsg(
+	comm::canBroker *canb_p,
     const struct {database_name}_{message_name}_t *src_p)
 {{
 {pack_unused}\
+    comm::canBroker_fdMsg_t msg;
 {pack_variables}\
-    if (msg_p->dlc < {message_length}u) {{
-        return (-EINVAL);
-    }}
-
-    memset(&msg_p->data[0], 0, {message_length});
+    msg.id = 0x{message_id:02x}u;
+    memset(&msg.data[0], 0, sizeof(msg.data));
+    msg.dlc = {message_length:01x}u;
 {pack_body}
 {canObj}
     return ({message_length});
@@ -515,12 +509,11 @@ int {database_name}_{message_name}_pack(
 DEFINITION_UNPACK_FMT = '''\
 int {database_name}_{message_name}_unpack(
     struct {database_name}_{message_name}_t *dst_p,
-    const uint8_t *src_p,
-    size_t size)
+    comm::canBroker_fdMsg_t *msg_p)
 {{
 {unpack_unused}\
 {unpack_variables}\
-    if (size < {message_length}u) {{
+    if ((msg_p->dlc != {message_length:01x}u) || (msg_p->id != 0x{message_id:02x}u)) {{
         return (-EINVAL);
     }}
 {unpack_body}
@@ -967,9 +960,9 @@ def _format_pack_code_signal(cg_message: "CodeGenMessage",
 
     for index, shift, shift_direction, mask in cg_signal.segments(invert_shift=False):
         if cg_signal.signal.conversion.is_float or cg_signal.signal.is_signed:
-            fmt = '    msg_p->data[{}] |= pack_{}_shift_u{}({}, {}u, 0x{:02x}u);'
+            fmt = '    msg.data[{}] |= pack_{}_shift_u{}({}, {}u, 0x{:02x}u);'
         else:
-            fmt = '    msg_p->data[{}] |= pack_{}_shift_u{}(src_p->{}, {}u, 0x{:02x}u);'
+            fmt = '    msg.data[{}] |= pack_{}_shift_u{}(src_p->{}, {}u, 0x{:02x}u);'
 
         line = fmt.format(index,
                           shift_direction,
@@ -1085,9 +1078,9 @@ def _format_unpack_code_signal(cg_message: "CodeGenMessage",
 
     for i, (index, shift, shift_direction, mask) in enumerate(segments):
         if cg_signal.signal.conversion.is_float or cg_signal.signal.is_signed:
-            fmt = '    {} {} unpack_{}_shift_u{}(src_p[{}], {}u, 0x{:02x}u);'
+            fmt = '    {} {} unpack_{}_shift_u{}(msg_p->data[{}], {}u, 0x{:02x}u);'
         else:
-            fmt = '    dst_p->{} {} unpack_{}_shift_u{}(src_p[{}], {}u, 0x{:02x}u);'
+            fmt = '    dst_p->{} {} unpack_{}_shift_u{}(msg_p->data[{}], {}u, 0x{:02x}u);'
 
         line = fmt.format(cg_signal.snake_name,
                           '=' if i == 0 else '|=',
@@ -1582,7 +1575,7 @@ def _generate_definitions(database_name: str,
                 unpack_unused += '    (void)dst_p;\n'
                 unpack_unused += '    (void)src_p;\n\n'
             
-            canObj = '    canb_p->sendCanMsg(msg_p);\n'
+            canObj = '    canb_p->sendCanMsg(&msg);\n'
 
             definition = ""
             if is_sender:
@@ -1593,7 +1586,8 @@ def _generate_definitions(database_name: str,
                                                          pack_unused=pack_unused,
                                                          pack_variables=pack_variables,
                                                          pack_body=pack_body,
-                                                         canObj = canObj)
+                                                         canObj=canObj,
+                                                         message_id=cg_message.message.frame_id)
             if is_receiver:
                 definition += DEFINITION_UNPACK_FMT.format(database_name=database_name,
                                                            database_message_name=cg_message.message.name,
@@ -1601,7 +1595,8 @@ def _generate_definitions(database_name: str,
                                                            message_length=cg_message.message.length,
                                                            unpack_unused=unpack_unused,
                                                            unpack_variables=unpack_variables,
-                                                           unpack_body=unpack_body)
+                                                           unpack_body=unpack_body,
+                                                           message_id=cg_message.message.frame_id)
 
             definition += MESSAGE_DEFINITION_INIT_FMT.format(database_name=database_name,
                                                              database_message_name=cg_message.message.name,
