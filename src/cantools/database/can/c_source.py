@@ -68,7 +68,7 @@ extern "C" {{
 }}
 #endif
 
-#include "canBroker.h"
+#include "comm/canBroker/canBrokerTxIf.h"
 
 #ifndef EINVAL
 #    define EINVAL 22
