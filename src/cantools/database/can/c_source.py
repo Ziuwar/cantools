@@ -371,7 +371,7 @@ DECLARATION_PACK_FMT = '''\
  * @return Size of packed data, or negative error code.
  */
 int {database_name}_{message_name}_sendMsg(
-	comm::canBroker *canb_p,
+	comm::canBrokerTxIf *canb_p,
     const struct {database_name}_{message_name}_t *src_p);
 
 '''
@@ -490,7 +490,7 @@ static inline {var_type} unpack_right_shift_u{length}(
 
 DEFINITION_PACK_FMT = '''\
 int {database_name}_{message_name}_sendMsg(
-	comm::canBroker *canb_p,
+	comm::canBrokerTxIf *canb_p,
     const struct {database_name}_{message_name}_t *src_p)
 {{
 {pack_unused}\
